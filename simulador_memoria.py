@@ -2,6 +2,7 @@
 ###     S I M U L A D O R    D E    M E M Ó R I A
 ###
 ### Prof. Filipo - github.com/ProfessorFilipo/MemSim/
+### Grupo 04 - FIFO vs. Ótimo (OPT) - 4 Frames
 ###
 
 import sys
@@ -10,79 +11,139 @@ import sys
 class Frame:
     def __init__(self, id_frame):
         self.id_frame = id_frame
-        self.pagina_alocada = None  # Armazena o número da página ou None se estiver vazio
-        # Dica para os alunos: vocês podem adicionar atributos aqui para ajudar no algoritmo (ex: timestamp, contador)
+        self.pagina_alocada = None   # Número da página ou None se vazio
+        self.timestamp = -1          # Usado pelo FIFO: momento de inserção
 
 
 class TabelaPaginas:
-    def __init__(self, num_frames):
-        # Inicializa a memória física com a quantidade de frames especificada
+    def __init__(self, num_frames, algoritmo):
         self.frames = [Frame(i) for i in range(num_frames)]
         self.total_page_faults = 0
         self.total_acessos = 0
+        self.algoritmo = algoritmo.upper()   # 'FIFO' ou 'OPT'
+        self.relogio = 0                     # Contador global de tempo (FIFO)
+        self.fila_fifo = []                  # Ordem de inserção dos frames (FIFO)
+        self.referencias_futuras = []        # Sequência completa de páginas (OPT)
+        self.posicao_atual = 0               # Índice da referência atual (OPT)
 
-    def acessar_pagina(self, numero_pagina):
+    def definir_referencias(self, ref_list):
+        """Fornece a sequência completa ao algoritmo OPT para look-ahead."""
+        self.referencias_futuras = ref_list
+
+    # ------------------------------------------------------------------
+    # Ponto de entrada principal: processa um acesso a uma página
+    # ------------------------------------------------------------------
+    def acessar_pagina(self, numero_pagina, indice_atual=0):
         self.total_acessos += 1
+        self.posicao_atual = indice_atual
 
-        # 1. Verificar se a página já está em algum frame (Hit)
+        # 1. Verifica HIT — página já está na memória
         for frame in self.frames:
             if frame.pagina_alocada == numero_pagina:
-                # TODO: Se necessário para o algoritmo (ex: LRU), atualize metadados aqui.
-                return True, frame.id_frame  # Retorna (Hit=True, frame_id)
+                return True, frame.id_frame   # (Hit, frame_id)
 
-        # 2. Se não encontrou, ocorreu um Page Fault!
+        # 2. PAGE FAULT — página não está na memória
         self.total_page_faults += 1
 
-        # 3. Verificar se existe algum frame vazio disponível
+        # 3. Existe frame vazio? Insere sem substituição
         for frame in self.frames:
             if frame.pagina_alocada is None:
                 frame.pagina_alocada = numero_pagina
-                # TODO: Se necessário para o algoritmo, inicialize metadados do frame aqui.
-                return False, frame.id_frame  # Retorna (Hit=False, frame_id)
+                self._inicializar_metadados(frame)
+                return False, frame.id_frame  # (Fault, frame_id)
 
-        # 4. Memória cheia: Aplicar algoritmo de substituição de página
-        frame_vitima_id = self.substituir_pagina(numero_pagina)
-        return False, frame_vitima_id
+        # 4. Memória cheia — aplica o algoritmo de substituição
+        frame_vitima = self._substituir_pagina(numero_pagina)
+        frame_vitima.pagina_alocada = numero_pagina
+        self._reinicializar_metadados(frame_vitima)
+        return False, frame_vitima.id_frame   # (Fault, frame_id)
 
-    def substituir_pagina(self, nova_pagina):
-        """
-        TODO: IMPLEMENTAR PELO GRUPO
-        Esta função deve escolher uma página 'vítima' para ser substituída
-        com base no algoritmo escolhido (FIFO ou LRU), atualizar o frame
-        escolhido com a nova_pagina e retornar o ID do frame que foi alterado.
-        """
-        frame_escolhido_id = 0
+    # ------------------------------------------------------------------
+    # Metadados: inicialização na primeira inserção
+    # ------------------------------------------------------------------
+    def _inicializar_metadados(self, frame):
+        if self.algoritmo == 'FIFO':
+            frame.timestamp = self.relogio
+            self.relogio += 1
+            self.fila_fifo.append(frame.id_frame)
 
-        # Escreva a lógica do algoritmo aqui...
+    # ------------------------------------------------------------------
+    # Metadados: reinicialização após substituição
+    # ------------------------------------------------------------------
+    def _reinicializar_metadados(self, frame):
+        if self.algoritmo == 'FIFO':
+            frame.timestamp = self.relogio
+            self.relogio += 1
+            # O frame já foi removido da fila em _substituir_pagina; reinsere no fim
+            self.fila_fifo.append(frame.id_frame)
 
-        # Exemplo de atualização (substitua pela lógica real):
-        # self.frames[frame_escolhido_id].pagina_alocada = nova_pagina
+    # ------------------------------------------------------------------
+    # FIFO: retira o frame mais antigo (cabeça da fila)
+    # OPT : retira a página cujo próximo uso está mais distante no futuro
+    # ------------------------------------------------------------------
+    def _substituir_pagina(self, nova_pagina):
+        if self.algoritmo == 'FIFO':
+            vitima_id = self.fila_fifo.pop(0)   # Remove o mais antigo
+            return self.frames[vitima_id]
 
-        return frame_escolhido_id
+        elif self.algoritmo == 'OPT':
+            melhor_frame = None
+            maior_distancia = -1
 
+            for frame in self.frames:
+                pagina = frame.pagina_alocada
+                try:
+                    # Próxima ocorrência desta página APÓS a posição atual
+                    proxima_pos = self.referencias_futuras.index(
+                        pagina, self.posicao_atual + 1
+                    )
+                    distancia = proxima_pos - self.posicao_atual
+                except ValueError:
+                    # Página nunca mais será referenciada → vítima ideal
+                    return frame
+
+                if distancia > maior_distancia:
+                    maior_distancia = distancia
+                    melhor_frame = frame
+
+            return melhor_frame
+
+        else:
+            raise ValueError(f"Algoritmo '{self.algoritmo}' não suportado neste simulador.")
+
+    # ------------------------------------------------------------------
+    # Impressão do mapa de memória a cada passo
+    # ------------------------------------------------------------------
     def imprimir_mapa_memoria(self, passo, pagina_acessada, foi_hit, frame_alterado=None):
-        """
-        TODO: IMPLEMENTAR PELO GRUPO
-        Esta função deve imprimir o estado atual da memória física (frames) no terminal,
-        conforme o padrão visual exigido no enunciado do trabalho.
-        """
         status = "Hit" if foi_hit else "Page Fault"
         print(f"\n--- Passo {passo}: Acesso à Página {pagina_acessada} ({status}) ---")
 
-        # Exemplo de iteração sobre os frames para os alunos completarem o print:
         for frame in self.frames:
-            conteudo = f"Página {frame.pagina_alocada}" if frame.pagina_alocada is not None else "[Vazio]"
-            marcador = " <-- Alterado" if frame.id_frame == frame_alterado and not foi_hit else ""
+            if frame.pagina_alocada is not None:
+                conteudo = f"Página {frame.pagina_alocada}"
+            else:
+                conteudo = "[Vazio]"
+
+            # Marca o frame alterado somente em caso de Page Fault
+            marcador = ""
+            if not foi_hit and frame.id_frame == frame_alterado:
+                marcador = " <-- Alterado"
+
             print(f"[Frame {frame.id_frame}]: {conteudo}{marcador}")
 
         print("-" * 40)
 
 
+# ----------------------------------------------------------------------
+# Simulador: lê o arquivo, instancia a TabelaPaginas e conduz a simulação
+# ----------------------------------------------------------------------
 class Simulador:
-    def __init__(self, caminho_arquivo):
+    def __init__(self, caminho_arquivo, algoritmo):
         self.caminho_arquivo = caminho_arquivo
+        self.algoritmo = algoritmo.upper()
 
     def executar(self):
+        # Leitura e limpeza do arquivo de entrada
         try:
             with open(self.caminho_arquivo, 'r') as arquivo:
                 linhas = arquivo.readlines()
@@ -90,44 +151,58 @@ class Simulador:
             print(f"Erro: O arquivo '{self.caminho_arquivo}' não foi encontrado.")
             return
 
-        # Limpa linhas vazias ou comentários se houver
         linhas = [l.strip() for l in linhas if l.strip() and not l.strip().startswith('#')]
 
         if not linhas:
             print("Erro: Arquivo de entrada vazio.")
             return
 
-        # A primeira linha válida define o número de frames na memória RAM simulada
+        # Primeira linha: quantidade de frames
         num_frames = int(linhas[0])
-        tabela_paginas = TabelaPaginas(num_frames)
+        # Demais linhas: sequência de acessos às páginas
+        sequencia_paginas = [int(l) for l in linhas[1:]]
 
-        print(f"Iniciando simulação com {num_frames} frames disponíveis.")
+        tabela_paginas = TabelaPaginas(num_frames, self.algoritmo)
+
+        # OPT precisa da sequência completa antecipadamente (look-ahead)
+        if self.algoritmo == 'OPT':
+            tabela_paginas.definir_referencias(sequencia_paginas)
+
+        print(f"Iniciando simulação com {num_frames} frames disponíveis. Algoritmo: {self.algoritmo}")
         print("=" * 40)
 
-        # As linhas seguintes são a sequência de acessos às páginas
-        passo = 1
-        for linha in linhas[1:]:
-            numero_pagina = int(linha)
+        for i, pagina in enumerate(sequencia_paginas):
+            foi_hit, frame_id = tabela_paginas.acessar_pagina(pagina, indice_atual=i)
+            tabela_paginas.imprimir_mapa_memoria(i + 1, pagina, foi_hit, frame_id)
 
-            # Processa o acesso na tabela de páginas
-            foi_hit, frame_id = tabela_paginas.acessar_pagina(numero_pagina)
-
-            # Renderiza o mapa de memória para o aluno ver o passo a passo
-            tabela_paginas.imprimir_mapa_memoria(passo, numero_pagina, foi_hit, frame_id)
-            passo += 1
-
-        # Exibição das estatísticas finais da simulação
+        # Estatísticas finais
         print("\n================ STATS FINAIS ================")
         print(f"Total de Acessos: {tabela_paginas.total_acessos}")
         print(f"Total de Page Faults: {tabela_paginas.total_page_faults}")
         if tabela_paginas.total_acessos > 0:
-            taxa_faults = (tabela_paginas.total_page_faults / tabela_paginas.total_acessos) * 100
-            print(f"Taxa de Page Faults: {taxa_faults:.2f}%")
+            taxa = (tabela_paginas.total_page_faults / tabela_paginas.total_acessos) * 100
+            print(f"Taxa de Page Faults: {taxa:.2f}%")
         print("==============================================")
 
 
+# ----------------------------------------------------------------------
+# Ponto de entrada
+# Uso: python simulador_memoria.py [arquivo] [algoritmo]
+# Exemplos:
+#   python simulador_memoria.py entrada.txt FIFO
+#   python simulador_memoria.py entrada.txt OPT
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
-    # Permite passar o arquivo de entrada por argumento de linha de comando ou usa um padrão
-    arquivo_entrada = sys.argv[1] if len(sys.argv) > 1 else "entrada.txt"
-    simulador = Simulador(arquivo_entrada)
+    arquivo_entrada = "entrada.txt"
+    algoritmo = "FIFO"          # padrão
+
+    if len(sys.argv) > 1:
+        arquivo_entrada = sys.argv[1]
+    if len(sys.argv) > 2:
+        algoritmo = sys.argv[2].upper()
+        if algoritmo not in ('FIFO', 'OPT'):
+            print(f"Algoritmo '{algoritmo}' inválido para o Grupo 04. Use FIFO ou OPT.")
+            sys.exit(1)
+
+    simulador = Simulador(arquivo_entrada, algoritmo)
     simulador.executar()
