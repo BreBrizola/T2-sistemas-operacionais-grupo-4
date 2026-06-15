@@ -142,25 +142,30 @@ class Simulador:
         self.caminho_arquivo = caminho_arquivo
         self.algoritmo = algoritmo.upper()
 
-    def executar(self):
-        # Leitura e limpeza do arquivo de entrada
+    def _ler_entrada(self):
         try:
-            with open(self.caminho_arquivo, 'r') as arquivo:
+            with open(self.caminho_arquivo, 'r', encoding='utf-8') as arquivo:
                 linhas = arquivo.readlines()
         except FileNotFoundError:
             print(f"Erro: O arquivo '{self.caminho_arquivo}' não foi encontrado.")
-            return
+            return None, None
 
         linhas = [l.strip() for l in linhas if l.strip() and not l.strip().startswith('#')]
 
         if not linhas:
             print("Erro: Arquivo de entrada vazio.")
-            return
+            return None, None
 
         # Primeira linha: quantidade de frames
         num_frames = int(linhas[0])
         # Demais linhas: sequência de acessos às páginas
         sequencia_paginas = [int(l) for l in linhas[1:]]
+        return num_frames, sequencia_paginas
+
+    def executar(self):
+        num_frames, sequencia_paginas = self._ler_entrada()
+        if num_frames is None:
+            return None
 
         tabela_paginas = TabelaPaginas(num_frames, self.algoritmo)
 
@@ -184,17 +189,45 @@ class Simulador:
             print(f"Taxa de Page Faults: {taxa:.2f}%")
         print("==============================================")
 
+        return tabela_paginas
+
+
+# ----------------------------------------------------------------------
+# Comparação final entre os dois algoritmos do grupo (FIFO vs OPT)
+# ----------------------------------------------------------------------
+def imprimir_comparacao(resultados):
+    print("\n\n================ COMPARAÇÃO FINAL (FIFO vs OPT) ================")
+    for nome, tabela in resultados.items():
+        if tabela is None:
+            continue
+        taxa = 0.0
+        if tabela.total_acessos > 0:
+            taxa = (tabela.total_page_faults / tabela.total_acessos) * 100
+
+        mapa_final = ", ".join(
+            f"[F{frame.id_frame}]:{frame.pagina_alocada}"
+            for frame in tabela.frames
+        )
+
+        print(f"\n{nome}:")
+        print(f"  Acessos: {tabela.total_acessos}")
+        print(f"  Page Faults: {tabela.total_page_faults}")
+        print(f"  Taxa de Page Faults: {taxa:.2f}%")
+        print(f"  Memória Final: {mapa_final}")
+    print("==================================================================")
+
 
 # ----------------------------------------------------------------------
 # Ponto de entrada
 # Uso: python simulador_memoria.py [arquivo] [algoritmo]
 # Exemplos:
-#   python simulador_memoria.py entrada.txt FIFO
-#   python simulador_memoria.py entrada.txt OPT
+#   python simulador_memoria.py entrada.txt          -> executa FIFO e OPT e compara
+#   python simulador_memoria.py entrada.txt FIFO     -> executa apenas FIFO
+#   python simulador_memoria.py entrada.txt OPT      -> executa apenas OPT
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     arquivo_entrada = "entrada.txt"
-    algoritmo = "FIFO"          # padrão
+    algoritmo = None  # None = executa ambos (FIFO e OPT) e compara
 
     if len(sys.argv) > 1:
         arquivo_entrada = sys.argv[1]
@@ -204,5 +237,13 @@ if __name__ == "__main__":
             print(f"Algoritmo '{algoritmo}' inválido para o Grupo 04. Use FIFO ou OPT.")
             sys.exit(1)
 
-    simulador = Simulador(arquivo_entrada, algoritmo)
-    simulador.executar()
+    if algoritmo is None:
+        resultados = {}
+        for nome in ('FIFO', 'OPT'):
+            simulador = Simulador(arquivo_entrada, nome)
+            resultados[nome] = simulador.executar()
+            print()
+        imprimir_comparacao(resultados)
+    else:
+        simulador = Simulador(arquivo_entrada, algoritmo)
+        simulador.executar()
