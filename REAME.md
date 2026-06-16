@@ -5,7 +5,7 @@ Este repositório contém a implementação do Trabalho Prático 02 da disciplin
 O objetivo deste projeto é simular o gerenciamento de memória virtual de um Sistema Operacional, focando na paginação e no tratamento de faltas de página (*Page Faults*) através de algoritmos de substituição.
 
 ## 👥 Grupo 04
-* **Integrantes:** Felipe, Brenda e Toninho
+* **Integrantes:** Felipe, Brenda e Antônio
 * **Algoritmos Designados:** FIFO vs. Ótimo (OPT)
 * **Configuração Base:** 4 Frames 
 
